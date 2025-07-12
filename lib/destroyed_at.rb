@@ -102,12 +102,39 @@ module DestroyedAt
       if assoc.options[:through] && assoc.options[:dependent] == :destroy
         assoc = association(assoc.options[:through])
       end
-      assoc.association_scope.each do |r|
+
+      # 获取关联记录的兼容方式
+      records = begin
+        if assoc.respond_to?(:target) && assoc.loaded?
+          # 如果关联已加载，使用 target
+          assoc.target || []
+        else
+          # 否则通过反射获取关联的类和外键
+          reflection = assoc.reflection
+          foreign_key = reflection.foreign_key
+          associated_class = reflection.klass
+
+          # 查询所有相关记录（包括软删除的）
+          associated_class.unscoped.where(foreign_key => self.id)
+        end
+      rescue => e
+        Rails.logger.warn "Failed to get association records for #{key}: #{e.message}"
+        []
+      end
+
+      records.each do |r|
         if r.respond_to?(:restore) && r.destroyed_at == self.destroyed_at
           r.restore
           reload_association = true
         end
       end
+
+      # assoc.association_scope.each do |r|
+      #   if r.respond_to?(:restore) && r.destroyed_at == self.destroyed_at
+      #     r.restore
+      #     reload_association = true
+      #   end
+      # end
 
       if reload_association
         assoc.reload
